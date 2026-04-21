@@ -1,6 +1,9 @@
 *.bin
 models/
-data/
+data/*
+!data/MATH/
+data/MATH/*
+!data/MATH/sft.jsonl
 
 nav
 tags
