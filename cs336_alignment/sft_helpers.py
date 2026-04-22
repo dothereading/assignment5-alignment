@@ -49,9 +49,5 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     # logits has dimensions: batch, seq_len, vocab_size
 
     log_probs = logits - torch.logsumexp(logits, dim=-1).unsqueeze(-1)
-    temp =  (torch.exp(log_probs) * log_probs)
-    H = - torch.sum(temp, dim=-1)
-
-    # returns batch, seq_len
-    return H
-    
+    probs = torch.exp(logits)
+    return -torch.div(torch.sum(probs * log_probs, dim=-1), torch.sum(probs, dim=-1))
