@@ -3,55 +3,43 @@ import torch
 
 
 def tokenize_prompt_and_output(
-    prompt_str: list[str], output_strs: list[str], tokenizer: PreTrainedTokenizer
+    prompt_strs: list[str], output_strs: list[str], tokenizer: PreTrainedTokenizer
 ) -> dict[str, torch.Tensor]:
-    encoded_prompts = tokenizer(prompt_str)
-    print(f"? {encoded_prompts}")
+    padding_token_id = tokenizer.pad_token_id
+    encoded_prompts = tokenizer(prompt_strs)
     encoded_outputs = tokenizer(output_strs)
-    # encoded_prompt_ids = encoded_prompts["input_ids"]
-    # encoded_output_ids = encoded_outputs["input_ids"]
-    print(
-        f"??? {list(p + o for p, o in zip(encoded_prompts['input_ids'], encoded_outputs['input_ids']))}"
+    encoded_prompt_and_output_ids = list(
+        p + o
+        for p, o in zip(encoded_prompts["input_ids"], encoded_outputs["input_ids"])
     )
-    encoded_prompt_and_output_id_list = list(
-        map(
-            torch.tensor,
-            (
-                p + o
-                for p, o in zip(
-                    encoded_prompts["input_ids"], encoded_outputs["input_ids"]
-                )
-            ),
-        )
+    encoded_prompt_and_output_ids_mask = list(
+        [False] * len(p) + [True] * len(o)
+        for p, o in zip(encoded_prompts["input_ids"], encoded_outputs["input_ids"])
     )
-    print(f"?????? {encoded_prompt_and_output_id_list}")
-    encoded_prompt_and_output_ids = torch.nn.utils.rnn.pad_sequence(
-        encoded_prompt_and_output_id_list
+    max_len = max(map(len, encoded_prompt_and_output_ids))
+    encoded_prompt_and_output_ids_tensors = map(
+        torch.tensor, encoded_prompt_and_output_ids
     )
-
-    print("encoded_prompt_and_output_ids", encoded_prompt_and_output_ids)
-
-    # zeros_prompts = torch.zeros_like(encoded_prompt_ids)
-    # output_mask = encoded_outputs["attention_mask"]
-    # prompt_output_mask = torch.cat((zeros_prompts, output_mask), dim=1) == 1
+    encoded_prompt_and_output_id_tensors_padded = tuple(
+        torch.nn.functional.pad(t, (0, max_len - t.size(0)), value=padding_token_id)
+        for t in encoded_prompt_and_output_ids_tensors
+    )
+    encoded_prompt_and_output_ids_mask_tensors = map(
+        torch.tensor, encoded_prompt_and_output_ids_mask
+    )
+    encoded_prompt_and_output_id_mask_tensors_padded = tuple(
+        torch.nn.functional.pad(t, (0, max_len - t.size(0)), value=False)
+        for t in encoded_prompt_and_output_ids_mask_tensors
+    )
+    encoded_prompt_and_output_ids_final = torch.stack(
+        encoded_prompt_and_output_id_tensors_padded
+    )
+    encoded_prompt_and_output_id_mask_final = torch.stack(
+        encoded_prompt_and_output_id_mask_tensors_padded
+    )
 
     return {
-        # "input_ids": encoded_prompt_and_output_ids[:, :-1],
-        "input_ids": torch.Tensor(
-            [
-                [9707, 11, 1879, 0, 9707, 11, 1879, 0, 151643],
-                [1986, 374, 264, 1273, 13, 1986, 374, 264, 1273],
-                [1986, 374, 2441, 1273, 13, 1986, 374, 2441, 1273],
-            ],
-        ).to(dtype=torch.int32),
-        # "labels": encoded_prompt_and_output_ids[:, 1:],
-        "labels": torch.Tensor(
-            [
-                [11, 1879, 0, 9707, 11, 1879, 0, 151643, 151643],
-                [374, 264, 1273, 13, 1986, 374, 264, 1273, 13],
-                [374, 2441, 1273, 13, 1986, 374, 2441, 1273, 13],
-            ],
-        ).to(dtype=torch.int32),
-        # "response_mask": prompt_output_mask[:, 1:],
-        "response_mask": torch.zeros(3, 3),
+        "input_ids": encoded_prompt_and_output_ids_final[:, :-1],
+        "labels": encoded_prompt_and_output_ids_final[:, 1:],
+        "response_mask": encoded_prompt_and_output_id_mask_final[:, 1:],
     }
