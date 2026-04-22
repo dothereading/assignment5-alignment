@@ -43,3 +43,21 @@ def tokenize_prompt_and_output(
         "labels": encoded_prompt_and_output_ids_final[:, 1:],
         "response_mask": encoded_prompt_and_output_id_mask_final[:, 1:],
     }
+
+
+def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
+    # logits has dimensions: batch, seq_len, vocab_size
+
+    # 1. run softmax along vocab size dim
+    print(f"Logits shape: {logits.shape}")
+    print(f"logsumexp shape: {torch.logsumexp(logits, dim=-1).unsqueeze(-1).shape}")
+    probs = logits - torch.logsumexp(logits, dim=-1).unsqueeze(-1)
+    # sum_z = torch.sum(probs, dim=-1) deleted
+    temp2 =  (torch.exp(probs) * probs)
+    temp3 = torch.sum(temp2, dim=-1)
+    H = - temp3 #* (1/sum_z)
+    print(f"H shape: {H.shape}")
+
+
+    return H
+    
