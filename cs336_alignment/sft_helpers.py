@@ -1,4 +1,4 @@
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, PreTrainedModel
 import torch
 
 
@@ -51,3 +51,25 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     log_probs = logits - torch.logsumexp(logits, dim=-1).unsqueeze(-1)
     probs = torch.exp(logits)
     return -torch.div(torch.sum(probs * log_probs, dim=-1), torch.sum(probs, dim=-1))
+
+def get_response_log_probs(
+    model: PreTrainedModel,
+    input_ids: torch.Tensor,
+    labels: torch.Tensor,
+    return_token_entropy: bool = False,
+) -> dict[str, torch.Tensor]:
+    with torch.inference_mode():
+        model.to("cuda" if torch.cuda.is_available() else "cpu")
+        logits = model(input_ids).logits
+
+    logs = torch.nn.functional.log_softmax(logits, dim = -1)
+    expenaded_labels = labels.unsqueeze(-1)
+    log_probs = torch.gather(logs, -1, expenaded_labels).squeeze(-1)
+    out = {
+        "log_probs": log_probs
+    }
+    if return_token_entropy: 
+        token_entropy = compute_entropy(logits)
+        out["token_entropy"]  = token_entropy
+
+    return out

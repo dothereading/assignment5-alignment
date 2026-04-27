@@ -24,7 +24,7 @@ _A = TypeVar("_A", np.ndarray, Tensor)
 
 def _canonicalize_array(arr: _A) -> np.ndarray:
     if isinstance(arr, Tensor):
-        arr = arr.detach().cpu().numpy()
+        arr = arr.detach().cpu().to(torch.float32).numpy()
     return arr
 
 
@@ -237,7 +237,7 @@ def tokenizer(model_id):
 
 @pytest.fixture
 def model(model_id):
-    return AutoModelForCausalLM.from_pretrained(model_id)
+    return AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float32)
 
 
 @pytest.fixture
