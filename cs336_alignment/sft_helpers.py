@@ -1,4 +1,6 @@
+from typing import Callable
 from transformers import PreTrainedTokenizer, PreTrainedModel
+from vllm import LLM, SamplingParams
 import torch
 
 
@@ -49,8 +51,8 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     # logits has dimensions: batch, seq_len, vocab_size
 
     log_probs = logits - torch.logsumexp(logits, dim=-1).unsqueeze(-1)
-    probs = torch.exp(logits)
-    return -torch.div(torch.sum(probs * log_probs, dim=-1), torch.sum(probs, dim=-1))
+    probs = torch.exp(log_probs)
+    return -torch.sum(probs * log_probs, dim=-1)
 
 
 def get_response_log_probs(
@@ -105,3 +107,72 @@ def sft_microbatch_train_step(
     loss = per_example_loss.mean() / gradient_accumulation_steps
     loss.backward()
     return loss, {}
+
+
+def log_generations(
+    prompts: list[str],
+    ground_truths: list[str],
+    llm: LLM,
+    sampling_params: SamplingParams,
+    reward_fn: Callable[[str, str], dict[str, float]],
+    policy: PreTrainedModel,
+    tokenizer: PreTrainedTokenizer,
+) -> dict:
+    outputs = llm.generate(prompts, sampling_params)
+    responses = [o.outputs[0].text for o in outputs]
+
+    tokenized = tokenize_prompt_and_output(prompts, responses, tokenizer)
+    input_ids = tokenized["input_ids"].to(policy.device)
+    labels = tokenized["labels"].to(policy.device)
+    response_mask = tokenized["response_mask"].to(policy.device)
+
+    log_probs_out = get_response_log_probs(
+        policy, input_ids, labels, return_token_entropy=True
+    )
+    token_entropy = log_probs_out["token_entropy"]
+
+    per_example = []
+    correct_lengths = []
+    incorrect_lengths = []
+    all_lengths = []
+
+    for i, (prompt, response, gt) in enumerate(zip(prompts, responses, ground_truths)):
+        rewards = reward_fn(response, gt)
+
+        mask_i = response_mask[i]
+        n_response_tokens = int(mask_i.sum().item())
+        if n_response_tokens > 0:
+            avg_entropy = (token_entropy[i] * mask_i).sum() / n_response_tokens
+            avg_entropy = float(avg_entropy.item())
+        else:
+            avg_entropy = 0.0
+
+        response_length = n_response_tokens
+        all_lengths.append(response_length)
+        if rewards["answer_reward"] == 1.0:
+            correct_lengths.append(response_length)
+        else:
+            incorrect_lengths.append(response_length)
+
+        per_example.append(
+            {
+                "prompt": prompt,
+                "response": response,
+                "ground_truth": gt,
+                "format_reward": rewards["format_reward"],
+                "answer_reward": rewards["answer_reward"],
+                "reward": rewards["reward"],
+                "avg_token_entropy": avg_entropy,
+                "response_length": response_length,
+            }
+        )
+
+    def _avg(xs: list[int]) -> float:
+        return sum(xs) / len(xs) if xs else 0.0
+
+    return {
+        "per_example": per_example,
+        "avg_response_length": _avg(all_lengths),
+        "avg_correct_response_length": _avg(correct_lengths),
+        "avg_incorrect_response_length": _avg(incorrect_lengths),
+    }
