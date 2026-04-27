@@ -52,6 +52,7 @@ def compute_entropy(logits: torch.Tensor) -> torch.Tensor:
     probs = torch.exp(logits)
     return -torch.div(torch.sum(probs * log_probs, dim=-1), torch.sum(probs, dim=-1))
 
+
 def get_response_log_probs(
     model: PreTrainedModel,
     input_ids: torch.Tensor,
@@ -62,14 +63,24 @@ def get_response_log_probs(
         model.to("cuda" if torch.cuda.is_available() else "cpu")
         logits = model(input_ids).logits
 
-    logs = torch.nn.functional.log_softmax(logits, dim = -1)
+    logs = torch.nn.functional.log_softmax(logits, dim=-1)
     expenaded_labels = labels.unsqueeze(-1)
     log_probs = torch.gather(logs, -1, expenaded_labels).squeeze(-1)
-    out = {
-        "log_probs": log_probs
-    }
-    if return_token_entropy: 
+    out = {"log_probs": log_probs}
+    if return_token_entropy:
         token_entropy = compute_entropy(logits)
-        out["token_entropy"]  = token_entropy
+        out["token_entropy"] = token_entropy
 
     return out
+
+
+def masked_normalize(
+    tensor: torch.Tensor,
+    mask: torch.Tensor,
+    normalize_constant: float,
+    dim: int | None = None,
+) -> torch.Tensor:
+    return (
+        torch.where(mask == 1, tensor, torch.zeros_like(tensor)).sum(dim=dim)
+        / normalize_constant
+    )
